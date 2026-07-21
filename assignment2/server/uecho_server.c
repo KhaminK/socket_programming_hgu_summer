@@ -1,4 +1,4 @@
-//자세한 설명은 client 확인
+// 자세한 설명은 client 확인
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,14 +7,16 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#define BUF_SIZE 30
+#define BUF_SIZE 1024
 #define FILE_NAME 1024
 
 void error_handling(char *message);
+int countChar(char *message);
 struct buffer
 {
     int seq;
     int time;
+    int size;
     char message[BUF_SIZE];
 };
 
@@ -50,9 +52,10 @@ int main(int argc, char *argv[])
 
     FILE *fp = NULL;
     // couldn't implement getting file name from the client
-    strcpy(fileName, "uecho_client.c");
+    strcpy(fileName, "binary.jpeg");
+    // strcpy(fileName, "uecho_client.c");
 
-    //opening the file as write mode
+    // opening the file as write mode
     if ((fp = fopen(fileName, "wb")) == NULL)
     {
         perror("fopen-a");
@@ -62,33 +65,38 @@ int main(int argc, char *argv[])
 
     struct buffer sender[5];
     struct buffer temp;
-    int location = 1;
+    int recvCnt;
+    int location = 0;
     for (int i = 0; i < 5; i++)
     {
         sender[i].seq = -1;
         sender[i].time = -1;
     }
 
+    int flag = 0;
     while (1)
     {
         clnt_adr_sz = sizeof(clnt_adr);
-        //receive the buffer
-        //if nothing is received for 10 seconds, terminates
-        if (recvfrom(serv_sock, &temp, sizeof(struct buffer), 0,
-                     (struct sockaddr *)&clnt_adr, &clnt_adr_sz) == -1)
+        // receive the buffer
+        // if nothing is received for 10 seconds, terminates
+        recvCnt = recvfrom(serv_sock, &temp, sizeof(struct buffer), 0,
+                           (struct sockaddr *)&clnt_adr, &clnt_adr_sz);
+        if (recvCnt == -1)
         {
             break;
         }
         else
         {
-            //if it receives terminating seq, terminate
-            if (temp.seq == -1){
+            // if it receives terminating seq, terminate
+            if (temp.seq == -1)
+            {
                 printf("received terminating seq\n");
             }
+            printf("received %d\n", temp.seq); 
             // send client exact same seq
             sendto(serv_sock, &temp.seq, sizeof(int), 0,
                    (struct sockaddr *)&clnt_adr, clnt_adr_sz);
-            //if wrong seq was received (smaller than the location or bigger than array index)
+            // if wrong seq was received (smaller than the location or bigger than array index)
             if (temp.seq < location || temp.seq >= location + 5)
                 continue;
             int idx = temp.seq % 5;
@@ -97,38 +105,22 @@ int main(int argc, char *argv[])
             // writing until it's stucked
             while (sender[location % 5].seq == location)
             {
-                int tempmIdx = location%5;
-                fwrite((void *)sender[tempmIdx].message, 1, strlen(sender[tempmIdx].message), fp);
+                int tempmIdx = location % 5;
+                // printf("%d. %d\n", sender[tempmIdx].seq, sender[tempmIdx].size);
+                fwrite((void *)sender[tempmIdx].message, 1, sender[tempmIdx].size, fp);
+                // fwrite((void *)sender[tempmIdx].message, 1, strlen(sender[tempmIdx].message), fp);
                 sender[tempmIdx].seq = -1;
+                if (temp.size < BUF_SIZE)
+                    flag++;
                 location++;
             }
         }
+        if (flag)
+        {
+            printf("terminating\n");
+            break;
+        }
     }
-
-    // first draft
-    // while (1)
-    // {
-    //     if (recvfrom(serv_sock, fileName, FILE_NAME, 0,
-    //                  (struct sockaddr *)&clnt_adr, &clnt_adr_sz) == -1)
-    //     {
-    //         printf("Error receiving the filename");
-    //     }
-    //     else
-    //     {
-    //         sendto(serv_sock, 0, sizeof(int), 0,
-    //                (struct sockaddr *)&clnt_adr, clnt_adr_sz);
-    //         break;
-    //     }
-    // }
-
-    // while (1)
-    // {
-    //     clnt_adr_sz = sizeof(clnt_adr);
-    //     str_len = recvfrom(serv_sock, message, BUF_SIZE, 0,
-    //                        (struct sockaddr *)&clnt_adr, &clnt_adr_sz);
-    //     sendto(serv_sock, message, str_len, 0,
-    //            (struct sockaddr *)&clnt_adr, clnt_adr_sz);
-    // }
     fclose(fp);
     close(serv_sock);
     return 0;
