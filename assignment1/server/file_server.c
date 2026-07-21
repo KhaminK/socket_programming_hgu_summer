@@ -20,11 +20,10 @@ struct file
     char fileName[FILENAME];
 };
 
-// 몇개 파일이 있는지 확인
-// 갯수를 보냄 (int) size of 4
-// 파일 리스트 보냄 (filePath * 갯수)
-// 파일 입력 받아 (fileNameSize)
-// 파일 보내 (30 size buffer * buffer횟수-1 + 마지막 찌꺼기)
+// 파일 갯수를 보냄 size of int
+// 파일 리스트 보냄 (filePath + fileSize) (1024+4096)* fileCount
+// 보낼 파일을 입력 받아 (fileName) 1024
+// 파일 보내 (30 size buffer * buffer횟수-1 + 마지막 찌꺼기) fileSize
 
 void search_directory(struct file **fileList, char path[FILEPATH]);
 void error_handling(char *message);
@@ -37,7 +36,7 @@ int main(int argc, char *argv[])
     FILE *fp;
     char buf[BUF_SIZE];
     char path[FILEPATH] = "/root/assignment1";
-    int read_cnt;
+    int read_cnt, totalRead = 0;
     struct file **fileList = malloc(sizeof(struct file *) * MAXFILES);
 
     struct sockaddr_in serv_adr, clnt_adr;
@@ -51,7 +50,6 @@ int main(int argc, char *argv[])
 
     search_directory(fileList, path);
 
-    fp = fopen("file_server.c", "rb");
     serv_sd = socket(PF_INET, SOCK_STREAM, 0);
 
     memset(&serv_adr, 0, sizeof(serv_adr));
@@ -64,38 +62,44 @@ int main(int argc, char *argv[])
 
     clnt_adr_sz = sizeof(clnt_adr);
     clnt_sd = accept(serv_sd, (struct sockaddr *)&clnt_adr, &clnt_adr_sz);
-    int flag = fcntl(clnt_sd, F_GETFL, 0);
-    fcntl(clnt_sd, F_SETFL, flag | O_NONBLOCK);
 
     int ack = 0;
-    int i = 0;
 
+    // sending number of file
     write(clnt_sd, &fileCount, sizeof(int));
 
-    while (!ack)
-    {
-        if (read(clnt_sd, &ack, sizeof(int)) > 0)
-        {
-            printf("Received ACK for fileCount: %d\n", ack);
-        }
-    }
-    ack = 0;
-
+    // sending all file names in the list
     for (int i = 0; i < fileCount; i++)
     {
-        ack = 0; 
         printf("Sending: %s\n", fileList[i]->fileName);
-        
-        write(clnt_sd, fileList[i]->fileName, FILENAME); 
-        
-        while (!ack)
-        {
-            if (read(clnt_sd, &ack, sizeof(int)) > 0) {
-                break; 
-            }
-        }
+        write(clnt_sd, fileList[i]->fileName, FILENAME);
+        write(clnt_sd, &fileList[i]->fileSize, sizeof(int));
     }
 
+    int index;
+    while (totalRead < sizeof(int))
+    {
+        read_cnt = read(clnt_sd, &index + totalRead, sizeof(int) - totalRead);
+        totalRead += read_cnt;
+    }
+    printf("Received Index: %d\n", index);
+
+    // open requested file
+    fp = fopen(fileList[index]->filePath, "rb");
+
+    //send the data of the file
+    while (1)
+    {
+        read_cnt = fread((void *)buf, 1, BUF_SIZE, fp);
+        if (read_cnt < BUF_SIZE)
+        {
+            write(clnt_sd, buf, read_cnt);
+            break;
+        }
+        write(clnt_sd, buf, BUF_SIZE);
+    }
+
+    //shutdown writing
     shutdown(clnt_sd, SHUT_WR);
     read(clnt_sd, buf, BUF_SIZE);
     printf("Message from client: %s \n", buf);
